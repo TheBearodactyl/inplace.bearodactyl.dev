@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1" />
+    <title>In-Place HTML Editor</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+
+      body {
+        background: #0b1220;
+        color: #e6eef8;
+        font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial;
+      }
+
+      #editor {
+        box-sizing: border-box;
+        outline: none;
+        width: 100%;
+        height: 100vh;
+        padding: 18px;
+        font-size: 16px;
+        line-height: 1.45;
+        background: #071125;
+        border: 0;
+        color: inherit;
+      }
+
+      p {
+        margin: 0 0 12px 0;
+      }
+
+      /* visual hint for inserted live nodes (optional) */
+      .live-html {
+        outline: none;
+        cursor: default;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div
+      id="editor"
+      contenteditable="true"
+      spellcheck="false"
+      aria-label="Live HTML editor"></div>
+
+    <script>
+      (function () {
+        const editor = document.getElementById("editor");
+        editor.innerHTML = "<p><br></p>";
+
+        function sanitizeFragment(doc) {
+          const scripts = doc.querySelectorAll("script");
+          scripts.forEach((s) => s.remove());
+          Array.from(doc.querySelectorAll("*")).forEach((el) => {
+            [...el.attributes].forEach((attr) => {
+              if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+              if (
+                attr.name.toLowerCase() === "href" &&
+                /^javascript:/i.test(attr.value)
+              )
+                el.removeAttribute(attr.name);
+            });
+          });
+          return doc;
+        }
+
+        function parseFragment(str) {
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(
+            '<div id="__wrap__">' + str + "</div>",
+            "text/html"
+          );
+          const wrap = doc.getElementById("__wrap__");
+          if (!wrap) return null;
+          sanitizeFragment(wrap);
+          const frag = document.createDocumentFragment();
+          while (wrap.firstChild) frag.appendChild(wrap.firstChild);
+          return frag;
+        }
+
+        function markNonEditable(el) {
+          if (!(el && el.nodeType === Node.ELEMENT_NODE)) return;
+          el.setAttribute("contenteditable", "false");
+          el.dataset.liveHtml = "1";
+          el.classList.add("live-html");
+          if (el.tagName.toLowerCase() === "a") {
+            el.setAttribute("rel", "noopener");
+            el.setAttribute("target", "_blank");
+            el.addEventListener("click", (ev) => {
+              // Prevent navigation; move caret after link instead
+              ev.preventDefault();
+              placeCaretAfterNode(el);
+            });
+          }
+          Array.from(el.querySelectorAll("*")).forEach((child) =>
+            child.setAttribute("contenteditable", "false")
+          );
+        }
+
+        const htmlLikeRegex =
+          /<([a-zA-Z][^\s>\/]*)(\b[^>]*)>([\s\S]*?)<\/\1>|<([a-zA-Z][^\s>\/]*)(\b[^>]*?)\s*\/\s*>/i;
+
+        function processNode(node) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const text = node.nodeValue;
+            const m = htmlLikeRegex.exec(text);
+            if (m) {
+              const start = m.index;
+              const end = start + m[0].length;
+              const before = text.slice(0, start);
+              const match = m[0];
+              const after = text.slice(end);
+              const parent = node.parentNode;
+
+              if (before)
+                parent.insertBefore(document.createTextNode(before), node);
+
+              const frag = parseFragment(match);
+              if (frag) {
+                const nodes = Array.from(frag.childNodes);
+                parent.insertBefore(frag, node);
+                nodes.forEach((n) => {
+                  if (n.nodeType === Node.ELEMENT_NODE) markNonEditable(n);
+                });
+                const last = nodes.length ? nodes[nodes.length - 1] : null;
+                if (last) {
+                  const spacer = document.createTextNode(" ");
+                  parent.insertBefore(spacer, node);
+                }
+              } else {
+                parent.insertBefore(document.createTextNode(match), node);
+              }
+
+              if (after)
+                parent.insertBefore(document.createTextNode(after), node);
+              parent.removeChild(node);
+              return true;
+            }
+          } else if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.isContentEditable === false) return false;
+            const children = Array.from(node.childNodes);
+            for (const c of children) {
+              if (processNode(c)) return true;
+            }
+          }
+          return false;
+        }
+
+        function ensureParagraphs() {
+          const children = Array.from(editor.childNodes);
+          for (const ch of children) {
+            if (ch.nodeType === Node.TEXT_NODE) {
+              const p = document.createElement("p");
+              p.appendChild(ch.cloneNode(true));
+              editor.replaceChild(p, ch);
+            } else if (
+              ch.nodeType === Node.ELEMENT_NODE &&
+              ch.tagName.toLowerCase() !== "p"
+            ) {
+              const block = [
+                "div",
+                "p",
+                "ul",
+                "ol",
+                "table",
+                "section",
+                "header",
+                "footer",
+                "article",
+                "pre",
+              ];
+              if (!block.includes(ch.tagName.toLowerCase())) {
+                const p = document.createElement("p");
+                p.appendChild(ch.cloneNode(true));
+                editor.replaceChild(p, ch);
+              }
+            }
+          }
+          if (!editor.querySelector("p")) {
+            const p = document.createElement("p");
+            p.innerHTML = "<br>";
+            editor.appendChild(p);
+          }
+        }
+
+        function processAll() {
+          let iterations = 0;
+          while (iterations < 60) {
+            const changed = processNode(editor);
+            iterations++;
+            if (!changed) break;
+          }
+          ensureParagraphs();
+        }
+
+        function placeCaretAtEnd(el) {
+          el.focus();
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          range.collapse(false);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+
+        function placeCaretAfterNode(node) {
+          const sel = window.getSelection();
+          const range = document.createRange();
+          const after = node.nextSibling;
+          if (after && after.nodeType === Node.TEXT_NODE) {
+            range.setStart(after, after.textContent.length);
+          } else {
+            const spacer = document.createTextNode(" ");
+            node.parentNode.insertBefore(spacer, node.nextSibling);
+            range.setStart(spacer, 1);
+          }
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          editor.focus();
+        }
+
+        function nodeBeforeCaret(range) {
+          let sc = range.startContainer;
+          let so = range.startOffset;
+          if (sc.nodeType === Node.TEXT_NODE) {
+            return sc.previousSibling;
+          } else if (sc.nodeType === Node.ELEMENT_NODE) {
+            if (so > 0) return sc.childNodes[so - 1];
+          }
+          return null;
+        }
+
+        editor.addEventListener("keydown", (e) => {
+          if (e.key === "Backspace") {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return;
+            const range = sel.getRangeAt(0);
+            if (!range.collapsed) return;
+            const before = nodeBeforeCaret(range);
+            if (
+              before &&
+              before.nodeType === Node.ELEMENT_NODE &&
+              before.dataset &&
+              before.dataset.liveHtml === "1"
+            ) {
+              e.preventDefault();
+              const parent = before.parentNode;
+              const after = before.nextSibling;
+              parent.removeChild(before);
+              if (after && after.nodeType === Node.TEXT_NODE) {
+                const newRange = document.createRange();
+                const sel2 = window.getSelection();
+                newRange.setStart(after, Math.min(after.textContent.length, 0));
+                newRange.collapse(true);
+                sel2.removeAllRanges();
+                sel2.addRange(newRange);
+              } else {
+                placeCaretAtEnd(editor);
+              }
+            }
+          }
+        });
+
+        editor.addEventListener(
+          "click",
+          (e) => {
+            const el = e.target.closest("[data-live-html]");
+            if (el) {
+              placeCaretAfterNode(el);
+            } else {
+              editor.focus();
+            }
+          },
+          true
+        );
+
+        let timer = null;
+        editor.addEventListener("input", () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            processAll();
+            placeCaretAtEnd(editor);
+          }, 120);
+        });
+
+        editor.addEventListener("paste", (e) => {
+          e.preventDefault();
+          const text = (e.clipboardData || window.clipboardData).getData(
+            "text/plain"
+          );
+          document.execCommand("insertText", false, text);
+        });
+
+        window.liveHtmlEditor = { processAll, editor };
+      })();
+    </script>
+  </body>
+</html>
