@@ -5,303 +5,445 @@
     <meta
       name="viewport"
       content="width=device-width,initial-scale=1" />
-    <title>In-Place HTML Editor</title>
+    <title>Inplace HTML editor (really buggy)</title>
     <style>
+      :root {
+        --bg-primary: #0b1220;
+        --bg-secondary: #071125;
+        --bg-tertiary: #0f1828;
+        --text-primary: #e6eef8;
+        --text-secondary: #9ca3af;
+        --text-muted: #6b7280;
+        --accent-blue: #3b82f6;
+        --accent-green: #10b981;
+        --accent-orange: #f59e0b;
+        --accent-red: #ef4444;
+        --border: #374151;
+        --border-hover: #4b5563;
+        --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
       html,
       body {
         height: 100%;
         margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        overflow: hidden;
       }
 
-      body {
-        background: #0b1220;
-        color: #e6eef8;
-        font-family: system-ui, Segoe UI, Roboto, Helvetica, Arial;
+      .editor-container {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+      }
+
+      .toolbar {
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border);
+        padding: 8px 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-shrink: 0;
+      }
+
+      .toolbar-group {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        padding-right: 12px;
+        border-right: 1px solid var(--border);
+      }
+
+      .toolbar-group:last-child {
+        border-right: none;
+        margin-left: auto;
+      }
+
+      .btn {
+        padding: 6px 10px;
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text-secondary);
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: all 0.15s ease;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .btn:hover:not(:disabled) {
+        background: var(--bg-secondary);
+        border-color: var(--border-hover);
+        color: var(--text-primary);
+      }
+
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .btn.active {
+        background: var(--accent-blue);
+        border-color: var(--accent-blue);
+        color: white;
+      }
+
+      .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .status-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent-green);
+        animation: pulse 2s infinite;
+      }
+
+      .status-dot.error {
+        background: var(--accent-red);
+        animation: none;
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.5;
+        }
+      }
+
+      .editor-wrapper {
+        flex: 1;
+        display: flex;
+        position: relative;
+        overflow: hidden;
+        min-height: 0;
+      }
+
+      .line-numbers {
+        background: var(--bg-tertiary);
+        border-right: 1px solid var(--border);
+        font-family: "Consolas", "Monaco", "Courier New", monospace;
+        font-size: 14px;
+        line-height: 2.2;
+        color: var(--text-muted);
+        user-select: none;
+        min-width: 50px;
+        text-align: right;
+        flex-shrink: 0;
+        overflow: hidden;
+        padding: 18px 12px 18px 8px;
+        white-space: pre;
+        position: relative;
       }
 
       #editor {
-        box-sizing: border-box;
+        margin-top: 9px;
+        flex: 1;
         outline: none;
-        width: 100%;
-        height: 100vh;
-        padding: 18px;
-        font-size: 16px;
+        font-family: "Consolas", "Monaco", "Courier New", monospace;
+        font-size: 10px;
         line-height: 1.45;
-        background: #071125;
+        background: var(--bg-secondary);
         border: 0;
         color: inherit;
+        resize: none;
+        overflow-y: auto;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        padding: 18px;
+        min-height: 100%;
+        height: auto;
+      }
+
+      #editor:focus {
+        background: var(--bg-secondary);
+      }
+
+      .editor-scroll-container {
+        flex: 1;
+        display: flex;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .line-numbers-container {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .html-tag {
+        color: var(--accent-blue);
+        font-weight: 500;
+      }
+
+      .html-attribute {
+        color: var(--accent-orange);
+      }
+
+      .html-string {
+        color: var(--accent-green);
+      }
+
+      .html-comment {
+        color: var(--text-muted);
+        font-style: italic;
+      }
+
+      .live-html {
+        outline: 2px solid var(--accent-blue);
+        outline-offset: 1px;
+        background: rgba(59, 130, 246, 0.1);
+        border-radius: 2px;
+        cursor: default;
+        position: relative;
+        transition: all 0.15s ease;
+      }
+
+      .live-html:hover {
+        outline-color: var(--accent-green);
+        background: rgba(16, 185, 129, 0.1);
+      }
+
+      .live-html::before {
+        content: attr(data-tag-name);
+        position: absolute;
+        top: -20px;
+        left: 0;
+        background: var(--accent-blue);
+        color: white;
+        padding: 2px 6px;
+        border-radius: 2px;
+        font-size: 10px;
+        font-weight: 500;
+        opacity: 0;
+        transition: opacity 0.15s ease;
+        pointer-events: none;
+        z-index: 10;
+      }
+
+      .live-html:hover::before {
+        opacity: 1;
       }
 
       p {
-        margin: 0 0 12px 0;
+        margin: 0 0 16px 0;
+        min-height: 1.45em;
       }
 
-      /* visual hint for inserted live nodes (optional) */
-      .live-html {
-        outline: none;
-        cursor: default;
+      p:last-child {
+        margin-bottom: 0;
+      }
+
+      p:empty::before {
+        content: "";
+        display: inline-block;
+        width: 1px;
+        height: 1.45em;
+        background: transparent;
+      }
+
+      .processing {
+        position: relative;
+      }
+
+      .processing::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(59, 130, 246, 0.05);
+        pointer-events: none;
+      }
+
+      @media (max-width: 768px) {
+        .toolbar {
+          padding: 6px 12px;
+          flex-wrap: wrap;
+        }
+
+        .toolbar-group {
+          padding-right: 8px;
+        }
+
+        .btn {
+          padding: 4px 8px;
+          font-size: 11px;
+        }
+
+        #editor {
+          padding: 12px;
+          font-size: 13px;
+        }
+
+        .line-numbers {
+          padding: 12px 8px 12px 6px;
+          font-size: 13px;
+          min-width: 40px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      @media (prefers-contrast: high) {
+        :root {
+          --bg-primary: #000;
+          --bg-secondary: #111;
+          --bg-tertiary: #222;
+          --text-primary: #fff;
+          --border: #666;
+        }
+      }
+
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 12px 16px;
+        color: var(--text-primary);
+        font-size: 13px;
+        z-index: 1000;
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+        max-width: 300px;
+      }
+
+      .toast.show {
+        transform: translateX(0);
+      }
+
+      .toast.success {
+        border-color: var(--accent-green);
+        background: rgba(16, 185, 129, 0.1);
+      }
+
+      .toast.error {
+        border-color: var(--accent-red);
+        background: rgba(239, 68, 68, 0.1);
+      }
+
+      .line-numbers {
+        line-height: 1.45 !important; 
+        padding-top: 18px !important; 
+      }
+
+      #editor {
+        line-height: 1.45 !important;
+        padding-top: 18px !important;
       }
     </style>
   </head>
 
   <body>
-    <div
-      id="editor"
-      contenteditable="true"
-      spellcheck="false"
-      aria-label="Live HTML editor"></div>
+    <div class="editor-container">
+      <div class="toolbar">
+        <div class="toolbar-group">
+          <button
+            class="btn"
+            id="undoBtn"
+            title="Undo (Ctrl+Z)"
+            disabled>
+            ↶ Undo
+          </button>
+          <button
+            class="btn"
+            id="redoBtn"
+            title="Redo (Ctrl+Y)"
+            disabled>
+            ↷ Redo
+          </button>
+        </div>
 
-    <script>
-      (function () {
-        const editor = document.getElementById("editor");
-        editor.innerHTML = "<p><br></p>";
+        <div class="toolbar-group">
+          <button
+            class="btn"
+            id="clearBtn"
+            title="Clear all content">
+            🗑 Clear
+          </button>
+          <button
+            class="btn"
+            id="copyBtn"
+            title="Copy content to clipboard">
+            📋 Copy
+          </button>
+        </div>
 
-        function sanitizeFragment(doc) {
-          const scripts = doc.querySelectorAll("script");
-          scripts.forEach((s) => s.remove());
-          Array.from(doc.querySelectorAll("*")).forEach((el) => {
-            [...el.attributes].forEach((attr) => {
-              if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
-              if (
-                attr.name.toLowerCase() === "href" &&
-                /^javascript:/i.test(attr.value)
-              )
-                el.removeAttribute(attr.name);
-            });
-          });
-          return doc;
-        }
+        <div class="toolbar-group">
+          <button
+            class="btn"
+            id="formatBtn"
+            title="Format/beautify HTML">
+            ✨ Format
+          </button>
+          <button
+            class="btn"
+            id="validateBtn"
+            title="Validate HTML">
+            ✓ Validate
+          </button>
+        </div>
 
-        function parseFragment(str) {
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(
-            '<div id="__wrap__">' + str + "</div>",
-            "text/html"
-          );
-          const wrap = doc.getElementById("__wrap__");
-          if (!wrap) return null;
-          sanitizeFragment(wrap);
-          const frag = document.createDocumentFragment();
-          while (wrap.firstChild) frag.appendChild(wrap.firstChild);
-          return frag;
-        }
+        <div class="toolbar-group">
+          <div class="status-indicator">
+            <div
+              class="status-dot"
+              id="statusDot"></div>
+            <span id="statusText">Ready</span>
+            <span id="charCount">0 chars</span>
+          </div>
+        </div>
+      </div>
 
-        function markNonEditable(el) {
-          if (!(el && el.nodeType === Node.ELEMENT_NODE)) return;
-          el.setAttribute("contenteditable", "false");
-          el.dataset.liveHtml = "1";
-          el.classList.add("live-html");
-          if (el.tagName.toLowerCase() === "a") {
-            el.setAttribute("rel", "noopener");
-            el.setAttribute("target", "_blank");
-            el.addEventListener("click", (ev) => {
-              // Prevent navigation; move caret after link instead
-              ev.preventDefault();
-              placeCaretAfterNode(el);
-            });
-          }
-          Array.from(el.querySelectorAll("*")).forEach((child) =>
-            child.setAttribute("contenteditable", "false")
-          );
-        }
+      <div class="editor-wrapper">
+        <div class="editor-scroll-container">
+          <div class="line-numbers-container">
+            <div
+              class="line-numbers"
+              id="lineNumbers"></div>
+          </div>
+          <div
+            id="editor"
+            contenteditable="true"
+            spellcheck="false"
+            aria-label="Live HTML editor with syntax highlighting"
+            role="textbox"
+            tabindex="0"></div>
+        </div>
+      </div>
+    </div>
 
-        const htmlLikeRegex =
-          /<([a-zA-Z][^\s>\/]*)(\b[^>]*)>([\s\S]*?)<\/\1>|<([a-zA-Z][^\s>\/]*)(\b[^>]*?)\s*\/\s*>/i;
-
-        function processNode(node) {
-          if (node.nodeType === Node.TEXT_NODE) {
-            const text = node.nodeValue;
-            const m = htmlLikeRegex.exec(text);
-            if (m) {
-              const start = m.index;
-              const end = start + m[0].length;
-              const before = text.slice(0, start);
-              const match = m[0];
-              const after = text.slice(end);
-              const parent = node.parentNode;
-
-              if (before)
-                parent.insertBefore(document.createTextNode(before), node);
-
-              const frag = parseFragment(match);
-              if (frag) {
-                const nodes = Array.from(frag.childNodes);
-                parent.insertBefore(frag, node);
-                nodes.forEach((n) => {
-                  if (n.nodeType === Node.ELEMENT_NODE) markNonEditable(n);
-                });
-                const last = nodes.length ? nodes[nodes.length - 1] : null;
-                if (last) {
-                  const spacer = document.createTextNode(" ");
-                  parent.insertBefore(spacer, node);
-                }
-              } else {
-                parent.insertBefore(document.createTextNode(match), node);
-              }
-
-              if (after)
-                parent.insertBefore(document.createTextNode(after), node);
-              parent.removeChild(node);
-              return true;
-            }
-          } else if (node.nodeType === Node.ELEMENT_NODE) {
-            if (node.isContentEditable === false) return false;
-            const children = Array.from(node.childNodes);
-            for (const c of children) {
-              if (processNode(c)) return true;
-            }
-          }
-          return false;
-        }
-
-        function ensureParagraphs() {
-          const children = Array.from(editor.childNodes);
-          for (const ch of children) {
-            if (ch.nodeType === Node.TEXT_NODE) {
-              const p = document.createElement("p");
-              p.appendChild(ch.cloneNode(true));
-              editor.replaceChild(p, ch);
-            } else if (
-              ch.nodeType === Node.ELEMENT_NODE &&
-              ch.tagName.toLowerCase() !== "p"
-            ) {
-              const block = [
-                "div",
-                "p",
-                "ul",
-                "ol",
-                "table",
-                "section",
-                "header",
-                "footer",
-                "article",
-                "pre",
-              ];
-              if (!block.includes(ch.tagName.toLowerCase())) {
-                const p = document.createElement("p");
-                p.appendChild(ch.cloneNode(true));
-                editor.replaceChild(p, ch);
-              }
-            }
-          }
-          if (!editor.querySelector("p")) {
-            const p = document.createElement("p");
-            p.innerHTML = "<br>";
-            editor.appendChild(p);
-          }
-        }
-
-        function processAll() {
-          let iterations = 0;
-          while (iterations < 60) {
-            const changed = processNode(editor);
-            iterations++;
-            if (!changed) break;
-          }
-          ensureParagraphs();
-        }
-
-        function placeCaretAtEnd(el) {
-          el.focus();
-          const range = document.createRange();
-          range.selectNodeContents(el);
-          range.collapse(false);
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
-
-        function placeCaretAfterNode(node) {
-          const sel = window.getSelection();
-          const range = document.createRange();
-          const after = node.nextSibling;
-          if (after && after.nodeType === Node.TEXT_NODE) {
-            range.setStart(after, after.textContent.length);
-          } else {
-            const spacer = document.createTextNode(" ");
-            node.parentNode.insertBefore(spacer, node.nextSibling);
-            range.setStart(spacer, 1);
-          }
-          range.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(range);
-          editor.focus();
-        }
-
-        function nodeBeforeCaret(range) {
-          let sc = range.startContainer;
-          let so = range.startOffset;
-          if (sc.nodeType === Node.TEXT_NODE) {
-            return sc.previousSibling;
-          } else if (sc.nodeType === Node.ELEMENT_NODE) {
-            if (so > 0) return sc.childNodes[so - 1];
-          }
-          return null;
-        }
-
-        editor.addEventListener("keydown", (e) => {
-          if (e.key === "Backspace") {
-            const sel = window.getSelection();
-            if (!sel.rangeCount) return;
-            const range = sel.getRangeAt(0);
-            if (!range.collapsed) return;
-            const before = nodeBeforeCaret(range);
-            if (
-              before &&
-              before.nodeType === Node.ELEMENT_NODE &&
-              before.dataset &&
-              before.dataset.liveHtml === "1"
-            ) {
-              e.preventDefault();
-              const parent = before.parentNode;
-              const after = before.nextSibling;
-              parent.removeChild(before);
-              if (after && after.nodeType === Node.TEXT_NODE) {
-                const newRange = document.createRange();
-                const sel2 = window.getSelection();
-                newRange.setStart(after, Math.min(after.textContent.length, 0));
-                newRange.collapse(true);
-                sel2.removeAllRanges();
-                sel2.addRange(newRange);
-              } else {
-                placeCaretAtEnd(editor);
-              }
-            }
-          }
-        });
-
-        editor.addEventListener(
-          "click",
-          (e) => {
-            const el = e.target.closest("[data-live-html]");
-            if (el) {
-              placeCaretAfterNode(el);
-            } else {
-              editor.focus();
-            }
-          },
-          true
-        );
-
-        let timer = null;
-        editor.addEventListener("input", () => {
-          clearTimeout(timer);
-          timer = setTimeout(() => {
-            processAll();
-            placeCaretAtEnd(editor);
-          }, 120);
-        });
-
-        editor.addEventListener("paste", (e) => {
-          e.preventDefault();
-          const text = (e.clipboardData || window.clipboardData).getData(
-            "text/plain"
-          );
-          document.execCommand("insertText", false, text);
-        });
-
-        window.liveHtmlEditor = { processAll, editor };
-      })();
-    </script>
+    <script src="./script.js"></script>
   </body>
 </html>
